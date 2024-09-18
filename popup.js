@@ -1,7 +1,10 @@
+let popupInitialized = false;
+
 document.addEventListener('DOMContentLoaded', function() {
+    popupInitialized = true;
     requestLatestStatus();
 
-    document.getElementById('refreshStatus').addEventListener('click', requestLatestStatus);
+    document.getElementById('toggleChromeWs').addEventListener('click', toggleChromeWebSocket);
     document.getElementById('connectObs').addEventListener('click', connectToObs);
     document.getElementById('disconnectObs').addEventListener('click', disconnectFromObs);
 });
@@ -29,6 +32,24 @@ function updatePopupUI(status) {
     document.getElementById('obsSources').textContent = status.obsStats.sources;
     document.getElementById('obsStreaming').textContent = status.obsStats.streaming ? 'Yes' : 'No';
     document.getElementById('obsRecording').textContent = status.obsStats.recording ? 'Yes' : 'No';
+
+    document.getElementById('toggleChromeWs').textContent = 
+        status.connectionStatus.chromeWebSocket === 'connected' ? 'Disconnect Chrome WS' : 'Connect Chrome WS';
+}
+
+function toggleChromeWebSocket() {
+    chrome.tabs.query({active: true, currentWindow: true}, function(tabs) {
+        if (tabs[0]) {
+            chrome.runtime.sendMessage({action: "toggleChromeWs", tabId: tabs[0].id}, (response) => {
+                if (chrome.runtime.lastError) {
+                    console.error('Error toggling Chrome WS:', chrome.runtime.lastError);
+                } else {
+                    console.log('Chrome WS toggle initiated');
+                    requestLatestStatus();
+                }
+            });
+        }
+    });
 }
 
 function connectToObs() {
@@ -53,9 +74,8 @@ function disconnectFromObs() {
     });
 }
 
-// Listen for updates
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    if (message.action === 'statusUpdate') {
+    if (message.action === 'statusUpdate' && popupInitialized) {
         updatePopupUI(message);
     }
 });

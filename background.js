@@ -25,6 +25,8 @@ let latestStatus = {
     obsStats: obsStats
 };
 
+let debuggeeId = null;
+
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     switch(request.action) {
         case "getStatus":
@@ -42,14 +44,71 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             disconnectFromObs();
             sendResponse({success: true});
             break;
+        case "toggleChromeWs":
+            if (debuggeeId) {
+                chrome.debugger.detach(debuggeeId);
+                debuggeeId = null;
+                updateStatus('chromeWebSocket', 'disconnected');
+            } else {
+                attachDebugger(request.tabId);
+            }
+            sendResponse({success: true});
+            break;
     }
     return true;  // Indicates that the response is sent asynchronously
 });
 
 chrome.action.onClicked.addListener((tab) => {
-    connectToChromeWebSocket(tab.id);
-    connectToObs(); // You might want to make this optional or triggered separately
+    if (debuggeeId) {
+        chrome.debugger.detach(debuggeeId);
+        debuggeeId = null;
+        updateStatus('chromeWebSocket', 'disconnected');
+    } else {
+        attachDebugger(tab.id);
+    }
 });
+
+function attachDebugger(tabId) {
+    chrome.debugger.attach({tabId: tabId}, "1.3", () => {
+        if (chrome.runtime.lastError) {
+            console.error(chrome.runtime.lastError.message);
+            return;
+        }
+        debuggeeId = {tabId: tabId};
+        chrome.debugger.sendCommand(debuggeeId, "Network.enable");
+        chrome.debugger.onEvent.addListener(onEvent);
+        updateStatus('chromeWebSocket', 'connected');
+    });
+}
+
+function onEvent(debuggeeId, message, params) {
+    if (message === "Network.webSocketFrameReceived") {
+        const payload = params.response?.payloadData || params.request?.payloadData;
+        if (payload) {
+            console.log("WebSocket Frame Received:", payload);
+            messageStats.received++;
+            try {
+                // Attempt to parse the message to ensure it's valid JSON
+                JSON.parse(payload);
+                forwardToObs(payload);
+            } catch (error) {
+                console.error("Error parsing WebSocket frame:", error);
+                messageStats.lost++;
+            }
+        } else {
+            console.warn("Received WebSocket frame without payload data");
+        }
+    } else if (message === "Network.webSocketFrameSent") {
+        const payload = params.request?.payloadData;
+        if (payload) {
+            console.log("WebSocket Frame Sent:", payload);
+            messageStats.sent++;
+        } else {
+            console.warn("Sent WebSocket frame without payload data");
+        }
+    }
+    updateStatus('chromeWebSocket', 'connected');
+}
 
 function onWebSocketEvent(debuggeeId, message, params) {
     if (message === "Network.webSocketFrameReceived") {
@@ -57,11 +116,15 @@ function onWebSocketEvent(debuggeeId, message, params) {
         messageStats.received++;
         // Here you would process and potentially forward the message to OBS
     } else if (message === "Network.webSocketFrameSent") {
-        console.log("WebSocket Frame Sent:", params.request.payloadData);
-        messageStats.sent++;
+        const payload = params.response?.payloadData || params.request?.payloadData;
+        if (payload) {
+            console.log("WebSocket Frame Sent:", payload);
+            messageStats.sent++;
+        } else {
+            console.warn("Sent WebSocket frame without payload data. Full params:", JSON.stringify(params));
+        }
     }
-    
-    updateStatus('chromeWebSocket', 'connected'); // Ensure status stays updated
+    updateStatus('chromeWebSocket', 'connected');
 }
 
 function connectToObs() {
@@ -181,6 +244,9 @@ function handleOBSResponse(message) {
                     console.log('Updated recording status:', obsStats.recording);
                 }
                 break;
+            case 'BroadcastCustomMessage':
+                console.log('Custom message broadcasted successfully');
+                break;
             default:
                 console.log('Unhandled response type:', message.d.requestType);
         }
@@ -216,35 +282,87 @@ function handleAuthChallenge(message, password) {
 }
 
 function updateStatus(type, status) {
-    connectionStatus[type] = status;
-    console.log(`Updating status: ${type} = ${status}`);
-    
-    latestStatus = {
-        connectionStatus: connectionStatus,
-        messageStats: messageStats,
-        obsStats: obsStats
-    };
+     // Only update if the status has changed
+    if (connectionStatus[type] !== status) {
+        connectionStatus[type] = status;
+        console.log(`Updating status: ${type} = ${status}`);
+        
+        latestStatus = {
+            connectionStatus: connectionStatus,
+            messageStats: messageStats,
+            obsStats: obsStats
+        };
 
-    // Attempt to send update to popup (if open)
-    chrome.runtime.sendMessage({ 
-        action: 'statusUpdate',
-        ...latestStatus
-    }, () => {
-        if (chrome.runtime.lastError) {
-            console.log('Error sending status update (this is normal if popup is closed):', chrome.runtime.lastError.message);
-        } else {
-            console.log('Status update sent successfully');
-        }
-    });
+        // Use chrome.runtime.sendMessage instead of chrome.tabs.sendMessage
+        chrome.runtime.sendMessage({ 
+            action: 'statusUpdate',
+            ...latestStatus
+        }).catch(error => {
+            console.log('Error sending status update:', error.message);
+        });
+        
+        // Update extension icon
+        const iconPath = status === 'connected' ? {
+            16: 'images/icon_active_16.png',
+            32: 'images/icon_active_32.png',
+            48: 'images/icon_active_48.png',
+            128: 'images/icon_active_128.png'
+        } : {
+            16: 'images/icon_inactive_16.png',
+            32: 'images/icon_inactive_32.png',
+            48: 'images/icon_inactive_48.png',
+            128: 'images/icon_inactive_128.png'
+        };
+        chrome.action.setIcon({path: iconPath});
+    }
 }
 
 function forwardToObs(message) {
     if (obsSocket && obsSocket.readyState === WebSocket.OPEN) {
-        obsSocket.send(message);
-        messageStats.forwarded++;
+        try {
+            // Parse the Phoenix framework message
+            const parsedMessage = JSON.parse(message);
+            if (!Array.isArray(parsedMessage)) {
+                throw new Error("Unexpected message format");
+            }
+            
+            // Transform the message into OBS WebSocket format
+            const obsMessage = {
+                op: 6,
+                d: {
+                    requestType: "BroadcastCustomMessage",
+                    requestId: generateUniqueId(),
+                    requestData: {
+                        realm: "obs-websocket",
+                        data: {
+                            eventType: "ChromeWebSocketMessage",
+                            eventData: {
+                                channel: parsedMessage[2],
+                                event: parsedMessage[3],
+                                payload: parsedMessage[4]
+                            }
+                        }
+                    }
+                }
+            };
+            
+            // Send the transformed message to OBS
+            obsSocket.send(JSON.stringify(obsMessage));
+            messageStats.forwarded++;
+            console.log("Forwarded to OBS:", obsMessage);
+        } catch (error) {
+            console.error("Error forwarding message to OBS:", error);
+            messageStats.lost++;
+        }
     } else {
         console.warn('OBS WebSocket not connected. Message not forwarded.');
+        messageStats.lost++;
     }
+    updateStatus('obsWebSocket', obsSocket && obsSocket.readyState === WebSocket.OPEN ? 'connected' : 'disconnected');
+}
+
+function generateUniqueId() {
+    return Date.now().toString(36) + Math.random().toString(36).substr(2);
 }
 
 function getOBSStats() {
