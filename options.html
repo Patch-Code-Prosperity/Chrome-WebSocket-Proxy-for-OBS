@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebSocket Monitor Settings</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        h3 { margin-top: 0; }
+        .settings-section { margin-bottom: 20px; }
+        label { display: block; margin-bottom: 5px; }
+        input[type="text"], select { width: 100%; padding: 8px; margin-bottom: 10px; border-radius: 5px; border: 1px solid #ccc; }
+        button { background-color: #4CAF50; color: white; padding: 10px 15px; border: none; border-radius: 5px; cursor: pointer; }
+        button:hover { background-color: #45a049; }
+    </style>
+</head>
+<body>
+    <h3>WebSocket Monitor Settings</h3>
+        <div class="settings-section">
+            <label for="forward-url">Forwarding URL:</label>
+            <input type="text" id="forward-url" placeholder="ws://localhost:4444" />
+            <label for="ws-password">WebSocket Password:</label>
+            <input type="text" id="ws-password" placeholder="password" />
+        </div>
+        <button id="save-settings">Save Settings</button>
+    <script src="options.js"></script>
+</body>
+</html>

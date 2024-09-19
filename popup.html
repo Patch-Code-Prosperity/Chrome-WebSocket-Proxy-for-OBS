@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebSocket Monitor</title>
+    <style>
+        body { font-family: Arial, sans-serif; width: 300px; padding: 20px; }
+        .status-light { display: inline-block; width: 15px; height: 15px; border-radius: 50%; background-color: red; vertical-align: middle; }
+        .status-label { font-weight: bold; margin-left: 10px; }
+        .counters { margin-top: 20px; }
+        .counter-item { margin-bottom: 10px; }
+        .counter-label { font-weight: bold; }
+        .counter-value { margin-left: 10px; }
+        button { margin-top: 10px; display: block; width: 100%; }
+    </style>
+</head>
+<body>
+    <h2>WebSocket Monitor</h2>
+    
+    <h3>Chrome WebSocket</h3>
+    <p>Status: <span id="chromeWsStatus">Disconnected</span></p>
+    <p>Messages Received: <span id="wsReceived">0</span></p>
+    <p>Messages Forwarded: <span id="wsForwarded">0</span></p>
+    <p>Messages Lost: <span id="wsLost">0</span></p>
+    <p>Messages Sent: <span id="wsSent">0</span></p>
+
+    <h3>OBS WebSocket</h3>
+    <p>Status: <span id="obsWsStatus">Disconnected</span></p>
+    <p>Scenes: <span id="obsScenes">0</span></p>
+    <p>Sources: <span id="obsSources">0</span></p>
+    <p>Streaming: <span id="obsStreaming">No</span></p>
+    <p>Recording: <span id="obsRecording">No</span></p>
+
+    <button id="toggleChromeWs">Connect Chrome WS</button>
+    <button id="connectObs">Connect to OBS</button>
+    <button id="disconnectObs">Disconnect from OBS</button>
+
+    <script src="popup.js"></script>
+</body>
+</html>
