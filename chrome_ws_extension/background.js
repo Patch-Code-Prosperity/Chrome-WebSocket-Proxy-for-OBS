@@ -320,14 +320,11 @@ function updateStatus(type, status) {
 function forwardToObs(message) {
     if (obsSocket && obsSocket.readyState === WebSocket.OPEN) {
         try {
-            // Parse the Phoenix framework message
+            // Parse the incoming message
             const parsedMessage = JSON.parse(message);
-            if (!Array.isArray(parsedMessage)) {
-                throw new Error("Unexpected message format");
-            }
             
-            // Transform the message into OBS WebSocket format
-            const obsMessage = {
+            // Prepare the OBS message
+            let obsMessage = {
                 op: 6,
                 d: {
                     requestType: "BroadcastCustomMessage",
@@ -336,15 +333,27 @@ function forwardToObs(message) {
                         realm: "obs-websocket",
                         data: {
                             eventType: "ChromeWebSocketMessage",
-                            eventData: {
-                                channel: parsedMessage[2],
-                                event: parsedMessage[3],
-                                payload: parsedMessage[4]
-                            }
+                            eventData: {}
                         }
                     }
                 }
             };
+
+            // Handle different message formats
+            if (Array.isArray(parsedMessage)) {
+                // Phoenix framework message format
+                obsMessage.d.requestData.data.eventData = {
+                    channel: parsedMessage[2],
+                    event: parsedMessage[3],
+                    payload: parsedMessage[4]
+                };
+            } else if (typeof parsedMessage === 'object') {
+                // Generic object format
+                obsMessage.d.requestData.data.eventData = parsedMessage;
+            } else {
+                // Fallback for other formats
+                obsMessage.d.requestData.data.eventData = { rawMessage: message };
+            }
             
             // Send the transformed message to OBS
             obsSocket.send(JSON.stringify(obsMessage));
