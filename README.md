@@ -1,66 +1,71 @@
-# OBS Chrome WebSocket Extension
+<div align="center">
+  
+# 🌐OBS Chrome WebSocket Extension🔓
+![GitHub License](https://img.shields.io/github/license/Patch-Code-Prosperity/Chrome-WebSocket-Proxy-for-OBS)
+![GitHub Sponsors](https://img.shields.io/github/sponsors/Cfomodz)
+![Discord](https://img.shields.io/discord/425182625032962049)
 
-This Chrome extension monitors WebSocket traffic and forwards it to OBS (Open Broadcaster Software), bridging web applications and OBS for real-time interaction and updates.
+<img src="https://github.com/Patch-Code-Prosperity/Chrome-WebSocket-Proxy-for-OBS/blob/main/images/icon_inactive_128.png" alt="whatbot iconr" width="128"/>
+</br>
+</br>
 
-## Features
 
-- Monitor WebSocket traffic in Chrome
-- Forward WebSocket messages to OBS
-- Connect to OBS WebSocket server
-- User-friendly popup interface
-- Configurable settings
+## 🚀 What is This?
 
-## Installation
+This Chrome extension keeps an eye on WebSocket traffic and sends it straight to OBS, making real-time updates a breeze! 🎮✨
 
-1. Clone this repository or download the source code.
-2. Open Chrome and navigate to `chrome://extensions/`.
-3. Enable "Developer mode" in the top right corner.
-4. Click "Load unpacked" and select the directory containing the extension files.
+</div>
 
-## Usage
+## ✨ Features
 
-1. Click the extension icon in Chrome to open the popup interface.
-2. Use "Connect Chrome WS" to start monitoring WebSocket traffic.
-3. Use "Connect to OBS" to establish a connection with your OBS WebSocket server.
-4. The popup displays connection status and message statistics.
+👀 Monitor WebSocket traffic in Chrome  
+📨 Forward WebSocket messages to OBS  
+🔗 Connect to OBS WebSocket server  
+🖱️ Easy-to-use popup interface  
+⚙️ Customizable settings  
 
-## Configuration
+## 🛠️ Installation
+1. Clone this repo or download the source code.
+2. Open Chrome and go to: `chrome://extensions/`
+3. Turn on Developer mode (top right corner).
+4. Click Load unpacked and pick the folder with the extension files.  
 
-1. Right-click the extension icon and select "Options".
-2. Set the OBS WebSocket server URL and password.
-3. Click "Save Settings" to apply changes.
+## 🎮 How to Use
+1. Click the extension icon in Chrome to open the popup.
+2. Hit Connect Chrome WS to start monitoring WebSocket traffic.
+3. Click Connect to OBS to link up with your OBS WebSocket server.
+4. The popup shows connection status and message stats.   
 
-## Files Overview
+## ⚙️ Configuration
+1. Right-click the extension icon and choose Options.
+2. Add your OBS WebSocket server URL and password.
+3. Click Save Settings to lock it in.  
 
-- `manifest.json`: Extension configuration
-- `background.js`: Main extension logic
-- `popup.html` and `popup.js`: User interface and functionality
-- `options.html` and `options.js`: Settings page and functionality
+## 📂 Files Overview
+manifest.json: Extension setup   
+background.js: Main logic   
+popup.html & popup.js: UI stuff   
+options.html & options.js: Settings page   
 
-## Development
+## 🛠️ Development
+Want to tweak or expand the extension? Here’s how:   
+Edit the files (e.g., background.js for core logic, popup.js for UI).   
+Reload the extension in Chrome to see changes.   
+Use Chrome’s dev tools for debugging.   
 
-To modify or extend the extension:
-
-1. Edit relevant files (e.g., `background.js` for core logic, `popup.js` for UI interactions).
-2. Reload the extension in Chrome to apply changes.
-3. Use Chrome's developer tools for debugging.
-
-## License
-
+## 📜 License
 This project is licensed under the GNU Lesser General Public License v2.1.
 
-## Contributing
+## 🤝 Contributing
+Got ideas? Contributions are welcome! Just submit a Pull Request.
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+## 🆘 Support
+Ran into issues? Have questions? Open an issue or jump into the Discord.
 
-## Support
+## 🙏 Shoutouts
+[OBS Studio](https://obsproject.com/): For being the GOAT of live streaming.   
+[OBS WebSocket](https://github.com/obsproject/obs-websocket): For making OBS WebSocket magic happen.   
 
-If you encounter issues or have questions, please file an issue on the GitHub repository.
-
-## Acknowledgements
-
-- [OBS Studio](https://obsproject.com/) for providing a robust platform for live streaming.
-- [OBS WebSocket](https://github.com/obsproject/obs-websocket) for enabling WebSocket control of OBS.
 
 ## Disclaimer
 
