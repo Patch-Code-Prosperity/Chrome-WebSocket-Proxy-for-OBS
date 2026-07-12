@@ -1,1 +1,7 @@
+.vscode
 .gitignore
+.env
+whatnot_obs.py
+__pycache__/
+whatnot_events.json
+config.toml
