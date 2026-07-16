@@ -110,84 +110,73 @@ function onEvent(debuggeeId, message, params) {
     updateStatus('chromeWebSocket', 'connected');
 }
 
-function onWebSocketEvent(debuggeeId, message, params) {
-    if (message === "Network.webSocketFrameReceived") {
-        console.log("WebSocket Frame Received:", params.response.payloadData);
-        messageStats.received++;
-        // Here you would process and potentially forward the message to OBS
-    } else if (message === "Network.webSocketFrameSent") {
-        const payload = params.response?.payloadData || params.request?.payloadData;
-        if (payload) {
-            console.log("WebSocket Frame Sent:", payload);
-            messageStats.sent++;
-        } else {
-            console.warn("Sent WebSocket frame without payload data. Full params:", JSON.stringify(params));
-        }
-    }
-    updateStatus('chromeWebSocket', 'connected');
-}
-
 function connectToObs() {
-    chrome.storage.sync.get(['forwardUrl'], function(result) {
+    chrome.storage.sync.get(['forwardUrl', 'wsPassword'], function(result) {
         const forwardUrl = result.forwardUrl || 'ws://localhost:4455';
-        
+        const wsPassword = result.wsPassword || '';
+
         console.log('Attempting to connect to OBS WebSocket at:', forwardUrl);
-        
+
         if (obsSocket && obsSocket.readyState === WebSocket.OPEN) {
             console.log('Already connected to OBS WebSocket');
             return;
         }
-        
+
         obsSocket = new WebSocket(forwardUrl);
-        
+
+        // obs-websocket v5 handshake: wait for Hello (op 0), answer with
+        // Identify (op 1) — including the auth response if OBS challenges.
         obsSocket.onopen = () => {
-            console.log('OBS WebSocket connection opened');
-            updateStatus('obsWebSocket', 'connected');
-            // Send the Identify message here, after the connection is open
-            const identifyPayload = {
-                op: 1,
-                d: {
-                    rpcVersion: 1,
-                    eventSubscriptions: 0
-                }
-            };
-            console.log('Sending Identify message');
-            console.log('Identify payload:', JSON.stringify(identifyPayload));
-            obsSocket.send(JSON.stringify(identifyPayload));
+            console.log('OBS WebSocket connection opened, waiting for Hello');
         };
-        
+
         obsSocket.onerror = (error) => {
             console.error('OBS WebSocket Error:', error);
             updateStatus('obsWebSocket', 'error');
         };
 
         obsSocket.onclose = (event) => {
-            console.log('Disconnected from OBS WebSocket. Code:', event.code, 'Reason:', event.reason);
-            updateStatus('obsWebSocket', 'disconnected');
+            // 4008/4009 = authentication missing/failed per the v5 spec
+            const authCodes = { 4008: 'auth required', 4009: 'auth failed' };
+            const reason = authCodes[event.code] || event.reason || '';
+            console.log('Disconnected from OBS WebSocket. Code:', event.code, 'Reason:', reason);
+            updateStatus('obsWebSocket', authCodes[event.code] ? 'auth_failed' : 'disconnected');
         };
 
         obsSocket.onmessage = (event) => {
             const message = JSON.parse(event.data);
-            console.log('Received message from OBS:', message);
-            handleOBSMessage(message);
+            handleOBSMessage(message, wsPassword);
         };
     });
 }
 
-function handleOBSMessage(message) {
+async function sha256B64(str) {
+    const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
+    return btoa(String.fromCharCode(...new Uint8Array(buf)));
+}
+
+async function handleOBSMessage(message, password) {
     switch (message.op) {
-        case 0: // Hello
-            console.log('Received Hello message:', message.d);
-            // We don't need to send Identify here anymore
+        case 0: { // Hello -> Identify (with auth answer if challenged)
+            const identify = { op: 1, d: { rpcVersion: 1, eventSubscriptions: 0 } };
+            const auth = message.d.authentication;
+            if (auth) {
+                if (!password) {
+                    console.error('OBS requires a password — set it in the extension options.');
+                    updateStatus('obsWebSocket', 'auth_failed');
+                    obsSocket.close();
+                    return;
+                }
+                const secret = await sha256B64(password + auth.salt);
+                identify.d.authentication = await sha256B64(secret + auth.challenge);
+            }
+            obsSocket.send(JSON.stringify(identify));
             break;
+        }
         case 2: // Identified
             console.log('Identified successfully with OBS');
             updateStatus('obsWebSocket', 'authenticated');
             getOBSStats();
-            break;
-        case 3: // Identification failed
-            console.error('Identification failed:', message.d.error);
-            updateStatus('auth_failed');
             break;
         case 7: // Request response
             handleOBSResponse(message);
@@ -197,28 +186,18 @@ function handleOBSMessage(message) {
     }
 }
 
-function handleHello(helloData) {
-    console.log('Received Hello message:', helloData);
-    const { rpcVersion } = helloData;
-    identifyToObs(rpcVersion);
-}
-
-function identifyToObs(rpcVersion) {
-    console.log('Sending Identify message');
-    const identifyPayload = {
-        op: 1,
-        d: {
-            rpcVersion: rpcVersion,
-            eventSubscriptions: 0
-        }
-    };
-    console.log('Identify payload:', JSON.stringify(identifyPayload));
-    obsSocket.send(JSON.stringify(identifyPayload));
-}
-
 function handleOBSResponse(message) {
     console.log('Received response from OBS:', message);
     if (message.d && message.d.requestType) {
+        // count rejected requests as lost instead of pretending they forwarded
+        if (message.d.requestStatus && !message.d.requestStatus.result) {
+            console.error('OBS rejected', message.d.requestType, message.d.requestStatus);
+            if (message.d.requestType === 'BroadcastCustomEvent') {
+                messageStats.lost++;
+                if (messageStats.forwarded > 0) messageStats.forwarded--;
+            }
+            return;
+        }
         switch (message.d.requestType) {
             case 'GetSceneList':
                 if (message.d.responseData && message.d.responseData.scenes) {
@@ -244,8 +223,8 @@ function handleOBSResponse(message) {
                     console.log('Updated recording status:', obsStats.recording);
                 }
                 break;
-            case 'BroadcastCustomMessage':
-                console.log('Custom message broadcasted successfully');
+            case 'BroadcastCustomEvent':
+                console.log('Custom event broadcasted successfully');
                 break;
             default:
                 console.log('Unhandled response type:', message.d.requestType);
@@ -254,31 +233,6 @@ function handleOBSResponse(message) {
     } else {
         console.log('Unexpected response format:', message);
     }
-}
-
-function authenticateObs(password) {
-    const authRequest = {
-        op: 1,
-        d: {
-            rpcVersion: 1
-        }
-    };
-    obsSocket.send(JSON.stringify(authRequest));
-}
-
-function handleAuthChallenge(message, password) {
-    const { salt, challenge } = message.d;
-    const secret = CryptoJS.SHA256(password + salt);
-    const authResponse = CryptoJS.SHA256(secret + challenge);
-
-    const authMessage = {
-        op: 1,
-        d: {
-            rpcVersion: 1,
-            authentication: authResponse.toString(CryptoJS.enc.Base64)
-        }
-    };
-    obsSocket.send(JSON.stringify(authMessage));
 }
 
 function updateStatus(type, status) {
@@ -326,15 +280,15 @@ function forwardToObs(message) {
                 throw new Error("Unexpected message format");
             }
             
-            // Transform the message into OBS WebSocket format
+            // Transform into an obs-websocket v5 BroadcastCustomEvent (the v4
+            // name "BroadcastCustomMessage" is rejected by OBS 28+)
             const obsMessage = {
                 op: 6,
                 d: {
-                    requestType: "BroadcastCustomMessage",
+                    requestType: "BroadcastCustomEvent",
                     requestId: generateUniqueId(),
                     requestData: {
-                        realm: "obs-websocket",
-                        data: {
+                        eventData: {
                             eventType: "ChromeWebSocketMessage",
                             eventData: {
                                 channel: parsedMessage[2],

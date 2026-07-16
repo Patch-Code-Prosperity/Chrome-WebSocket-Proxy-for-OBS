@@ -1,6 +1,6 @@
 document.addEventListener('DOMContentLoaded', function() {
     chrome.storage.sync.get(['forwardUrl', 'wsPassword'], function(result) {
-        document.getElementById('forward-url').value = result.forwardUrl || 'ws://localhost:4444';
+        document.getElementById('forward-url').value = result.forwardUrl || 'ws://localhost:4455';
         document.getElementById('ws-password').value = result.wsPassword || '';
     });
     
