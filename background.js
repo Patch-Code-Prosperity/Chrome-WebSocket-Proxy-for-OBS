@@ -94,7 +94,9 @@ function onEvent(debuggeeId, message, params) {
         const payload = params.response?.payloadData || params.request?.payloadData;
         if (payload) {
             messageStats.received++;
-            const socketUrl = socketUrls[params.requestId] || "";
+            // Prefer the socket URL; fall back to the stable request-id when
+            // the socket opened before we attached (webSocketCreated missed).
+            const socketUrl = socketUrls[params.requestId] || ("req:" + params.requestId);
             // Forward EVERY valid-JSON frame from EVERY socket. The Phoenix
             // array shape [join_ref, ref, topic, event, payload] is unpacked
             // for convenience, but non-array frames are forwarded too (tagged
