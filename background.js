@@ -68,6 +68,11 @@ chrome.action.onClicked.addListener((tab) => {
     }
 });
 
+// requestId -> socket URL, so every forwarded frame can be labeled with
+// which of the stream's several WebSocket sessions it came from (Whatnot
+// runs ~3 per stream: livestream, commerce, viewer/presence).
+let socketUrls = {};
+
 function attachDebugger(tabId) {
     chrome.debugger.attach({tabId: tabId}, "1.3", () => {
         if (chrome.runtime.lastError) {
@@ -75,6 +80,7 @@ function attachDebugger(tabId) {
             return;
         }
         debuggeeId = {tabId: tabId};
+        socketUrls = {};
         chrome.debugger.sendCommand(debuggeeId, "Network.enable");
         chrome.debugger.onEvent.addListener(onEvent);
         updateStatus('chromeWebSocket', 'connected');
@@ -82,30 +88,27 @@ function attachDebugger(tabId) {
 }
 
 function onEvent(debuggeeId, message, params) {
-    if (message === "Network.webSocketFrameReceived") {
+    if (message === "Network.webSocketCreated") {
+        socketUrls[params.requestId] = params.url;
+    } else if (message === "Network.webSocketFrameReceived") {
         const payload = params.response?.payloadData || params.request?.payloadData;
         if (payload) {
-            console.log("WebSocket Frame Received:", payload);
             messageStats.received++;
+            const socketUrl = socketUrls[params.requestId] || "";
+            // Forward EVERY valid-JSON frame from EVERY socket. The Phoenix
+            // array shape [join_ref, ref, topic, event, payload] is unpacked
+            // for convenience, but non-array frames are forwarded too (tagged
+            // raw) so no session is silently dropped — presence/join/leave may
+            // ride a socket that doesn't use the array shape.
             try {
-                // Attempt to parse the message to ensure it's valid JSON
-                JSON.parse(payload);
-                forwardToObs(payload);
+                const parsed = JSON.parse(payload);
+                forwardToObs(parsed, socketUrl);
             } catch (error) {
-                console.error("Error parsing WebSocket frame:", error);
-                messageStats.lost++;
+                messageStats.lost++;   // genuinely non-JSON (e.g. binary)
             }
-        } else {
-            console.warn("Received WebSocket frame without payload data");
         }
     } else if (message === "Network.webSocketFrameSent") {
-        const payload = params.request?.payloadData;
-        if (payload) {
-            console.log("WebSocket Frame Sent:", payload);
-            messageStats.sent++;
-        } else {
-            console.warn("Sent WebSocket frame without payload data");
-        }
+        if (params.request?.payloadData) messageStats.sent++;
     }
     updateStatus('chromeWebSocket', 'connected');
 }
@@ -271,48 +274,36 @@ function updateStatus(type, status) {
     }
 }
 
-function forwardToObs(message) {
-    if (obsSocket && obsSocket.readyState === WebSocket.OPEN) {
-        try {
-            // Parse the Phoenix framework message
-            const parsedMessage = JSON.parse(message);
-            if (!Array.isArray(parsedMessage)) {
-                throw new Error("Unexpected message format");
-            }
-            
-            // Transform into an obs-websocket v5 BroadcastCustomEvent (the v4
-            // name "BroadcastCustomMessage" is rejected by OBS 28+)
-            const obsMessage = {
-                op: 6,
-                d: {
-                    requestType: "BroadcastCustomEvent",
-                    requestId: generateUniqueId(),
-                    requestData: {
-                        eventData: {
-                            eventType: "ChromeWebSocketMessage",
-                            eventData: {
-                                channel: parsedMessage[2],
-                                event: parsedMessage[3],
-                                payload: parsedMessage[4]
-                            }
-                        }
-                    }
-                }
-            };
-            
-            // Send the transformed message to OBS
-            obsSocket.send(JSON.stringify(obsMessage));
-            messageStats.forwarded++;
-            console.log("Forwarded to OBS:", obsMessage);
-        } catch (error) {
-            console.error("Error forwarding message to OBS:", error);
-            messageStats.lost++;
-        }
+function forwardToObs(parsed, socketUrl) {
+    if (!obsSocket || obsSocket.readyState !== WebSocket.OPEN) {
+        messageStats.lost++;
+        updateStatus('obsWebSocket', 'disconnected');
+        return;
+    }
+    // Phoenix frames are arrays [join_ref, ref, topic, event, payload].
+    // Anything else (a plain object, etc.) is forwarded tagged as raw so the
+    // downstream capture sees it instead of it being dropped.
+    let eventData;
+    if (Array.isArray(parsed)) {
+        eventData = {channel: parsed[2], event: parsed[3], payload: parsed[4], socket: socketUrl};
     } else {
-        console.warn('OBS WebSocket not connected. Message not forwarded.');
+        eventData = {channel: "(nonphoenix)", event: "raw_frame", payload: parsed, socket: socketUrl};
+    }
+    try {
+        obsSocket.send(JSON.stringify({
+            op: 6,
+            d: {
+                requestType: "BroadcastCustomEvent",  // v4 BroadcastCustomMessage is rejected by OBS 28+
+                requestId: generateUniqueId(),
+                requestData: {eventData: {eventType: "ChromeWebSocketMessage", eventData}}
+            }
+        }));
+        messageStats.forwarded++;
+    } catch (error) {
+        console.error("Error forwarding message to OBS:", error);
         messageStats.lost++;
     }
-    updateStatus('obsWebSocket', obsSocket && obsSocket.readyState === WebSocket.OPEN ? 'connected' : 'disconnected');
+    updateStatus('obsWebSocket', 'connected');
 }
 
 function generateUniqueId() {
